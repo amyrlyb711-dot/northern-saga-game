@@ -1,0 +1,406 @@
+
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>NORTHERN SAGA | حماسه شمال</title>
+
+<script src="https://cdn.babylonjs.com/babylon.js"></script>
+
+<style>
+*{box-sizing:border-box}
+body{margin:0;overflow:hidden;background:#101820;color:white;font-family:Tahoma,Arial,sans-serif;touch-action:none}
+#game{width:100vw;height:100vh;display:block;outline:none}
+#menu{
+position:fixed;inset:0;z-index:10;
+display:flex;align-items:center;justify-content:center;
+background:linear-gradient(180deg,rgba(5,13,20,.75),rgba(5,13,20,.96));
+text-align:center;padding:20px
+}
+.panel{width:min(440px,95vw);padding:30px 22px;background:rgba(15,29,37,.92);border:1px solid #9b8051;border-radius:18px;box-shadow:0 0 35px #000}
+h1{font-size:clamp(30px,8vw,48px);color:#e7c98b;margin:5px 0 8px}
+.subtitle{color:#c5b99f;letter-spacing:3px;font-size:12px}
+.description{line-height:2;color:#ddd;margin:22px 0}
+button{font-family:inherit;color:white;border:1px solid #b69a65;background:#51432d;border-radius:10px;padding:13px 20px;font-size:15px;cursor:pointer}
+button:active{transform:scale(.96)}
+#start{width:100%;background:#8b6737;font-size:18px}
+#hud{display:none;position:fixed;inset:0;pointer-events:none;z-index:5}
+#topbar{position:absolute;top:12px;left:12px;right:12px;display:flex;justify-content:space-between;gap:8px;align-items:flex-start}
+.info{background:#101820bb;border:1px solid #a58a5b;border-radius:9px;padding:9px 12px;font-size:12px}
+#mission{position:absolute;top:65px;right:12px;background:#101820bb;padding:10px 13px;border-right:3px solid #d6b36f;font-size:12px;line-height:1.8}
+#controls{position:absolute;bottom:22px;left:18px;right:18px;display:flex;justify-content:space-between;align-items:flex-end}
+#joystick{width:120px;height:120px;border-radius:50%;border:2px solid #ffffff66;background:#ffffff20;position:relative;pointer-events:auto;touch-action:none}
+#stick{width:48px;height:48px;border-radius:50%;background:#d8c49a;position:absolute;left:34px;top:34px;box-shadow:0 2px 12px #000}
+.actions{display:flex;gap:10px;align-items:flex-end;pointer-events:auto}
+.action{width:65px;height:65px;border-radius:50%;background:#4d422fdd;border:1px solid #d9bd80;font-size:12px;padding:5px}
+#message{position:absolute;top:45%;left:50%;transform:translate(-50%,-50%);background:#101820dd;border:1px solid #d9bd80;border-radius:10px;padding:12px 18px;display:none;text-align:center;font-size:14px}
+#rotate{display:none;position:fixed;inset:0;z-index:20;background:#101820;color:white;align-items:center;justify-content:center;text-align:center;padding:30px;line-height:2}
+@media(orientation:portrait) and (max-width:700px){
+#rotate{display:flex}
+}
+</style>
+</head>
+
+<body>
+<canvas id="game"></canvas>
+
+<div id="menu">
+  <div class="panel">
+    <div class="subtitle">AN ORIGINAL NORSE FANTASY ADVENTURE</div>
+    <h1>حماسه شمال</h1>
+    <div class="subtitle">NORTHERN SAGA</div>
+    <p class="description">
+      سرزمینی سرد و فراموش‌شده در انتظار توست.<br>
+      قدم در دنیای شمال بگذار، روستا را کشف کن<br>
+      و نیروی باستانی خود را بیدار کن.
+    </p>
+    <button id="start">شروع ماجراجویی</button>
+    <p style="font-size:11px;color:#a9a18f;margin-top:18px">
+      نسخه آزمایشی اولیه | Prototype 0.1
+    </p>
+  </div>
+</div>
+
+<div id="hud">
+  <div id="topbar">
+    <div class="info">❄️ NORTHERN SAGA</div>
+    <div class="info" id="health">سلامتی: ۱۰۰</div>
+  </div>
+  <div id="mission">
+    <b>مأموریت اصلی</b><br>
+    روستای شمالی را کشف کن.<br>
+    <span id="distance">به سوی نشانگر حرکت کن.</span>
+  </div>
+  <div id="message"></div>
+  <div id="controls">
+    <div id="joystick"><div id="stick"></div></div>
+    <div class="actions">
+      <button class="action" id="cameraBtn">تغییر<br>دوربین</button>
+      <button class="action" id="magicBtn">قدرت<br>جادویی ✨</button>
+    </div>
+  </div>
+</div>
+
+<div id="rotate">
+  <div>📱<br><b>برای تجربه بهتر، گوشی را افقی نگه دار.</b><br>پس از چرخاندن گوشی، بازی را شروع کن.</div>
+</div>
+
+<script>
+const canvas = document.getElementById("game");
+const engine = new BABYLON.Engine(canvas, true, {
+  preserveDrawingBuffer:false,
+  stencil:true,
+  antialias:true
+});
+
+let scene, player, camera, magicLight;
+let started = false;
+let firstPerson = false;
+let magicTime = 0;
+let messageTimer = 0;
+
+const input = {x:0,z:0};
+const keys = {};
+let joystickActive = false;
+let joystickPointer = null;
+
+function material(name,color,roughness=1){
+  const m = new BABYLON.StandardMaterial(name,scene);
+  m.diffuseColor = BABYLON.Color3.FromHexString(color);
+  m.specularColor = new BABYLON.Color3(0.12,0.12,0.12);
+  m.roughness = roughness;
+  return m;
+}
+
+function box(name,x,y,z,sx,sy,sz,mat){
+  const o = BABYLON.MeshBuilder.CreateBox(name,{width:sx,height:sy,depth:sz},scene);
+  o.position.set(x,y,z);
+  o.material=mat;
+  return o;
+}
+
+function makeTree(x,z){
+  const trunkMat=materials.wood;
+  const leafMat=materials.leaves;
+  const trunk=BABYLON.MeshBuilder.CreateCylinder("tree trunk",{height:2.4,diameter:.35},scene);
+  trunk.position.set(x,1.2,z);
+  trunk.material=trunkMat;
+  const crown=BABYLON.MeshBuilder.CreateCylinder("pine",{height:4,diameterTop:0,diameterBottom:2.8,tessellation:7},scene);
+  crown.position.set(x,3.8,z);
+  crown.material=leafMat;
+}
+
+function makeRock(x,z,size){
+  const r=BABYLON.MeshBuilder.CreateSphere("rock",{diameter:size,segments:5},scene);
+  r.scaling.y=.65;
+  r.position.set(x,size*.28,z);
+  r.rotation.y=Math.random()*3;
+  r.material=materials.rock;
+}
+
+function makeHouse(x,z){
+  const base=box("wooden house",x,1.5,z,5,3.2,4,materials.wood);
+  const roof=BABYLON.MeshBuilder.CreateCylinder("roof",{
+    height:5.4,diameterTop:0,diameterBottom:4.8,tessellation:4
+  },scene);
+  roof.rotation.z=Math.PI/2;
+  roof.rotation.y=Math.PI/4;
+  roof.scaling.set(1,.75,1);
+  roof.position.set(x,4,z);
+  roof.material=materials.roof;
+
+  const door=box("door",x,1,z-2.03,.9,2,.12,materials.door);
+  const window=box("window",x+1.4,2,z-2.05,.65,.65,.12,materials.glass);
+}
+
+function createWorld(){
+  scene = new BABYLON.Scene(engine);
+  scene.clearColor = new BABYLON.Color4(.48,.65,.75,1);
+  scene.fogMode = BABYLON.Scene.FOGMODE_EXP2;
+  scene.fogDensity=.009;
+  scene.fogColor=new BABYLON.Color3(.48,.62,.67);
+
+  const light=new BABYLON.HemisphericLight("sky",new BABYLON.Vector3(0,1,0),scene);
+  light.intensity=.85;
+  const sun=new BABYLON.DirectionalLight("sun",new BABYLON.Vector3(-.5,-1,.4),scene);
+  sun.position=new BABYLON.Vector3(30,50,-20);
+  sun.intensity=.75;
+
+  const materials={
+    grass:material("grass","#536b49"),
+    wood:material("wood","#493b2d"),
+    roof:material("roof","#303d40"),
+    door:material("door","#251c17"),
+    glass:material("glass","#9eb9ba"),
+    leaves:material("leaves","#253e35"),
+    rock:material("rock","#657074"),
+    water:material("water","#345e6d")
+  };
+  window.materials=materials;
+
+  const ground=BABYLON.MeshBuilder.CreateGround("land",{width:180,height:180,subdivisions:2},scene);
+  ground.material=materials.grass;
+
+  const water=BABYLON.MeshBuilder.CreateGround("lake",{width:38,height:25},scene);
+  water.position.set(42,.04,25);
+  water.material=materials.water;
+
+  // روستای آغازین
+  makeHouse(8,8);
+  makeHouse(-9,10);
+  makeHouse(1,-12);
+
+  // مسیر سنگی
+  for(let i=0;i<14;i++){
+    const stone=BABYLON.MeshBuilder.CreateCylinder("path stone",{
+      height:.12,diameter:1.1,tessellation:6
+    },scene);
+    stone.position.set(0,.09,17+i*2);
+    stone.material=materials.rock;
+  }
+
+  // جنگل اطراف روستا
+  for(let i=0;i<65;i++){
+    const x=(Math.random()-.5)*115;
+    const z=(Math.random()-.5)*115;
+    if(Math.abs(x)<15 && Math.abs(z)<20) continue;
+    makeTree(x,z);
+  }
+
+  // سنگ‌های پراکنده
+  for(let i=0;i<35;i++){
+    const x=(Math.random()-.5)*100;
+    const z=(Math.random()-.5)*100;
+    makeRock(x,z,.8+Math.random()*2);
+  }
+
+  // شخصیت بازیکن
+  player=new BABYLON.TransformNode("hero",scene);
+  const body=BABYLON.MeshBuilder.CreateCapsule("hero body",{
+    height:2.1,radius:.42
+  },scene);
+  body.parent=player;
+  body.position.y=1.05;
+  body.material=material("hero armor","#45535a");
+
+  const head=BABYLON.MeshBuilder.CreateSphere("hero head",{
+    diameter:.65,segments:12
+  },scene);
+  head.parent=player;
+  head.position.y=2.15;
+  head.material=material("hero face","#c49b77");
+
+  const cape=box("hero cape",0,1.15,.38,.7,1.1,.12,materials.door);
+  cape.parent=player;
+
+  // نور جادویی
+  magicLight=new BABYLON.PointLight("magic",new BABYLON.Vector3(0,2,0),scene);
+  magicLight.diffuse=new BABYLON.Color3(.2,.65,1);
+  magicLight.intensity=0;
+
+  // دوربین سوم‌شخص
+  camera=new BABYLON.ArcRotateCamera(
+    "camera",
+    -Math.PI/2,
+    1.15,
+    9,
+    new BABYLON.Vector3(0,1.5,0),
+    scene
+  );
+  camera.lowerRadiusLimit=2;
+  camera.upperRadiusLimit=15;
+  camera.lowerBetaLimit=.4;
+  camera.upperBetaLimit=1.5;
+  camera.attachControl(canvas,true);
+  camera.panningSensibility=0;
+  scene.activeCamera=camera;
+
+  return scene;
+}
+
+function showMessage(text){
+  const el=document.getElementById("message");
+  el.textContent=text;
+  el.style.display="block";
+  messageTimer=2.5;
+}
+
+function activateMagic(){
+  if(!started)return;
+  magicTime=1.5;
+  magicLight.intensity=8;
+  showMessage("✨ نیروی باستانی بیدار شد!");
+}
+
+function update(){
+  if(!started || !player)return;
+
+  let x=input.x;
+  let z=input.z;
+
+  if(keys["w"]||keys["arrowup"]) z+=1;
+  if(keys["s"]||keys["arrowdown"]) z-=1;
+  if(keys["a"]||keys["arrowleft"]) x-=1;
+  if(keys["d"]||keys["arrowright"]) x+=1;
+
+  const len=Math.hypot(x,z);
+  if(len>1){x/=len;z/=len;}
+
+  const forward=new BABYLON.Vector3(
+    Math.sin(camera.alpha),0,Math.cos(camera.alpha)
+  );
+  const right=new BABYLON.Vector3(
+    Math.cos(camera.alpha),0,-Math.sin(camera.alpha)
+  );
+
+  const movement=forward.scale(z).add(right.scale(x));
+  if(movement.length()>.01){
+    movement.normalize();
+    player.position.addInPlace(movement.scale(.12));
+    player.rotation.y=Math.atan2(movement.x,movement.z);
+  }
+
+  camera.target.x=player.position.x;
+  camera.target.y=player.position.y+1.3;
+  camera.target.z=player.position.z;
+
+  magicLight.position.set(
+    player.position.x,player.position.y+2,player.position.z
+  );
+
+  if(magicTime>0){
+    magicTime-=engine.getDeltaTime()/1000;
+    magicLight.intensity=8*Math.max(0,magicTime/1.5);
+  }
+
+  const distance=Math.round(Math.hypot(
+    player.position.x-0,player.position.z-35
+  ));
+  document.getElementById("distance").textContent=
+    distance<4 ? "مأموریت انجام شد! روستا را کشف کردی." :
+    "به سوی مسیر جنگل حرکت کن. فاصله: "+distance+" متر";
+
+  if(messageTimer>0){
+    messageTimer-=engine.getDeltaTime()/1000;
+    if(messageTimer<=0)
+      document.getElementById("message").style.display="none";
+  }
+}
+
+createWorld();
+
+engine.runRenderLoop(()=>{
+  if(scene){
+    update();
+    scene.render();
+  }
+});
+
+window.addEventListener("resize",()=>engine.resize());
+
+document.getElementById("start").addEventListener("click",()=>{
+  started=true;
+  document.getElementById("menu").style.display="none";
+  document.getElementById("hud").style.display="block";
+  showMessage("به سرزمین شمال خوش آمدی!");
+});
+
+document.getElementById("magicBtn").addEventListener("click",activateMagic);
+
+document.getElementById("cameraBtn").addEventListener("click",()=>{
+  if(!started)return;
+  firstPerson=!firstPerson;
+  camera.radius=firstPerson?2.2:9;
+  camera.beta=firstPerson?1.3:1.15;
+  showMessage(firstPerson?"نمای نزدیک":"نمای سوم‌شخص");
+});
+
+document.addEventListener("keydown",e=>{
+  keys[e.key.toLowerCase()]=true;
+});
+document.addEventListener("keyup",e=>{
+  keys[e.key.toLowerCase()]=false;
+});
+
+// کنترل لمسی جوی‌استیک
+const joystick=document.getElementById("joystick");
+const stick=document.getElementById("stick");
+
+function moveStick(e){
+  const r=joystick.getBoundingClientRect();
+  const cx=r.left+r.width/2;
+  const cy=r.top+r.height/2;
+  let dx=e.clientX-cx;
+  let dy=e.clientY-cy;
+  const max=38;
+  const d=Math.hypot(dx,dy);
+  if(d>max){dx=dx/d*max;dy=dy/d*max;}
+  stick.style.left=(34+dx)+"px";
+  stick.style.top=(34+dy)+"px";
+  input.x=dx/max;
+  input.z=-dy/max;
+}
+
+joystick.addEventListener("pointerdown",e=>{
+  joystickActive=true;
+  joystickPointer=e.pointerId;
+  joystick.setPointerCapture(e.pointerId);
+  moveStick(e);
+});
+joystick.addEventListener("pointermove",e=>{
+  if(joystickActive && e.pointerId===joystickPointer)moveStick(e);
+});
+function releaseStick(){
+  joystickActive=false;
+  joystickPointer=null;
+  input.x=0;
+  input.z=0;
+  stick.style.left="34px";
+  stick.style.top="34px";
+}
+joystick.addEventListener("pointerup",releaseStick);
+joystick.addEventListener("pointercancel",releaseStick);
+</script>
+</body>
+</html>
